@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title></title>
+    <link rel="stylesheet" href="css/normalize.min.css" />
+    <link rel="stylesheet" href="css/milligram.min.css" />
+    <link rel="stylesheet" href="css/style.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+  </head>
+  <body>
+
+    <div class="container" id="deviceRestartStep2" style="display: none;">
+      <blockquote>
+        <p><em>Device is now restarting. Page should reload automaticly when device will be ready
+        </em></p>
+      </blockquote>
+    </div>
+
+    <div class="container" id="mainContainer" >
+      <blockquote id="deviceRestartStep1" style="display: none;" >
+        <p><em>Changes were saved but controller needs to be restarted to make effect
+          <a id="makeRestartButton" class="button-primary" href="#"> Restart</a>
+        </em></p>
+      </blockquote>
+
+      <header>
+        <div class="float-right">
+          <a class="button button-clear" onclick="showPage('pageWiFi')">WiFi</a>
+          <a class="button button-clear" onclick="showPage('pageMQTT')">MQTT</a>
+          <a class="button button-clear" onclick="showPage('pageConfig')">Config</a>
+          <a class="button button-clear" onclick="showPage('pageLiveData')">Live data</a>
+        </div>
+        <h2>BRC</h2>
+      </header>
+      <hr>
+      <form method="POST" action="update" enctype="multipart/form-data">
+        <fieldset>
+          <div id=configPagesContainer>
+            <div id=pageWiFi class="active">
+              <h4>WiFi network</h4>
+              <div class="float-right">
+                <a class="button button-primary" href="#" id="scanButton">scan</a>
+              </div>
+              <label for="availableSsidField">Available WiFi networks</label>
+              <select id="availableSsidSelect"></select>
+
+              <label for="wifiSsidField">SSID</label>
+              <input name="wifi-ssid" type="text" placeholder="" id="wifiSsidField" value="%WIFI-SSID%" maxlength="%DEFAULT-INPUT-FIELD-LENGTH%">
+
+              <label for="wifiPasswordField">Password</label>
+              <input name="wifi-password" type="password" placeholder="" id="wifiPasswordField" value="%WIFI-PASSWORD%" maxlength="%DEFAULT-INPUT-FIELD-LENGTH%">
+
+
+            </div>
+            <div id=pageMQTT>
+              <h4>MQTT server connection</h4>
+              <label for="mqttHostField">Host</label>
+              <input name="mqtt-host" type="text" placeholder="" id="mqttHostField" value="%MQTT-HOST%" maxlength="%DEFAULT-INPUT-FIELD-LENGTH%">
+
+              <label for="mqttUsernameField">Username</label>
+              <input name="mqtt-username" type="text" placeholder="" id="mqttUsernameField" value="%MQTT-USERNAME%" maxlength="%DEFAULT-INPUT-FIELD-LENGTH%">
+
+              <label for="mqttPasswordField">Password</label>
+              <input name="mqtt-password" type="password" placeholder="" id="mqttPasswordField" value="%MQTT-PASSWORD%" maxlength="%DEFAULT-INPUT-FIELD-LENGTH%">
+            </div>
+            <div id=pageConfig>
+              <h4>Home Assistant</h4>
+              <label for="configHaMqttDiscoveryPrefix">MQTT discovery topic prefix</label>
+              <h8>Leave empty to turn off discovery message</h8>
+              <input id="configHaMqttDiscoveryPrefix" name="config-ha--mqtt-disco-topic-prefix" value="%CONFIG-HA-MQTT-DISCO-TOPIC%" maxlength="%HA-MQTT-DISCO-TOPIC-LENGTH%">
+
+            </div>
+            <div id=pageLiveData>
+              Live data
+            </div>
+          </div>
+          <input class="button-primary" type="submit" value="Save & restart">
+        </fieldset>
+      </form>
+    </div>
+  </body>
+</html>
+<script>
+  document.addEventListener("DOMContentLoaded", function(){
+    refreshNetworkList();
+    if ("%NEED-RESTART%" == "1") {
+      document.getElementById("deviceRestartStep1").style.display = "block";
+      document.getElementById("makeRestartButton").onclick = function() {
+        this.style.display = "none";
+        var xhr = new XMLHttpRequest();
+        xhr.onreadystatechange = function() {
+          if (xhr.readyState === 4 && xhr.status === 200) {
+            document.getElementById("mainContainer").innerHTML = "";
+            document.getElementById("deviceRestartStep2").style.display = "block";
+            setInterval(function(){
+              xhr.open('GET', 'http://' + document.location.host, false);
+              xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                  window.location.reload(true);
+                }
+              }
+              xhr.send();
+            }, 1000);
+
+          }
+        };
+        xhr.open('POST', 'http://' + document.location.host + "/restart?hash=%RANDOM-HASH%");
+        xhr.send();
+      }
+    }
+
+  });
+
+  var wifiList = document.getElementById("availableSsidSelect");
+  wifiList.addEventListener('change', function() {
+    if (this.value != "") {
+      var wifiSsidField = document.getElementById("wifiSsidField");
+      wifiSsidField.value = this.value;
+    }
+  });
+  var scanButton = document.getElementById("scanButton");
+  scanButton.addEventListener('click', event => {
+    refreshNetworkList();
+  });
+
+  refreshNetworkList = function() {
+    var xhr = new XMLHttpRequest();
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState == 4) {
+        var json = JSON.parse(xhr.responseText);
+        wifiList.innerHTML = "";
+        for (var i = 0; i < json.length; i++) {
+          var option = document.createElement("option");
+          option.value = json[i].ssid;
+          option.text = json[i].ssid + " " + json[i].rssi + "dB";
+          wifiList.appendChild(option);
+        }
+      }
+    };
+    xhr.open('GET', 'http://' + document.location.host + "/wifiNetworks");
+    xhr.send()
+  }
+
+  showPage = function(pageId) {
+    var pageContainer = document.getElementById("configPagesContainer");
+    for (var i = 0; i < pageContainer.children.length; i++) {
+      pageContainer.children[i].className = "";
+    }
+    document.getElementById(pageId).className = "active";
+  }
+
+  getRelayConfigRow = function(index, relayName) {
+    var el = document.createElement("span");
+    var relayFieldName = "config-relay-"+index;
+    var relayFieldId = relayFieldName;
+    var label = document.createElement("label");
+    label.setAttribute("for", relayFieldId);
+    label.innerHTML = "Relay #"+index;
+
+    var input = document.createElement("input");
+    input.setAttribute("name", relayFieldName);
+    input.value = relayName;
+    input.maxLength = "%RELAY-NAME-LENGTH%";
+    el.appendChild(label);
+    el.appendChild(input);
+    return el;
+  }
+
+</script>

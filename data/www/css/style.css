@@ -1,0 +1,25 @@
+.container {
+    width: 800px;
+    margin: auto;
+}
+
+.button-clear.active {
+    border-color: transparent transparent #9b4dca transparent !important;
+    border-radius: 0 !important;
+    border-width: 2px;
+}
+
+
+#configPagesContainer > div {
+    visibility: hidden;
+    position: absolute;
+}
+
+#configPagesContainer .active {
+    visibility: visible;
+    position: relative;
+}
+
+#deviceRestartStep2 {
+    display: none;
+}
