@@ -8,23 +8,24 @@
 #include <Ticker.h>
 #include <Relays.h>
 #include <HCSR04.h>
-#include <OneWire.h>
-#include <DallasTemperature.h>
+#include <TempSensors.h>
 
 
 #define COLUMS 16
 #define ROWS   2
 #define PAGE   ((COLUMS) * (ROWS))
 #define MQTT_BUFFER_SIZE 512
-#define ONE_WIRE_BUS D2
 #define PCF_RELAYS_ADDR 0x27
+#define ONE_WIRE_BUS D3
 
-#define MQTT_UPDATE_INIT_INTERVAL 1000
-#define MQTT_UPDATE_INTERVAL 60000
+#define MQTT_INIT_INTERVAL 1000
+#define MQTT_AVAILABLE_INTERVAL 60000
+#define MQTT_UPDATE_STATES_INTERVAL 15000
+#define DISTANCE_SENSOR_UPDATE_INTERVAL 1000 //3600000 // 1h
 #define MQTT_INIT_STEP_DISCOVERY 1
-#define MQTT_INIT_STEP_SUBSCRIPTIONS 2
-#define MQTT_INIT_STEP_AVAILABILITY 3
-#define MQTT_INIT_STEP_STATES 4
+#define MQTT_INIT_STEP_AVAILABILITY 2
+#define MQTT_INIT_STEP_STATES 3
+#define MQTT_INIT_END 4
 
 byte loaderChars[5][8] = {
   {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10},
@@ -45,26 +46,38 @@ PortalConfig config;
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
 UltraSonicDistanceSensor distanceSensor(D7, D8);
-OneWire oneWire(ONE_WIRE_BUS);
-DallasTemperature tempSensors(&oneWire);
+TempSensors tempSensors(mqtt, ONE_WIRE_BUS);
 Relays relays(mqtt, PCF_RELAYS_ADDR);
 
 bool isWiFiConnected = false;
 bool relaysStateSent = false;
 bool mqttInitialized = false;
+double distanceSensorLastValue = 0.0;
 uint8_t mqttInitializationStep = MQTT_INIT_STEP_DISCOVERY;
+String haAvailabilityTopic = "/status";
 
 void mqttCallback(char* topic, uint8_t* payload, unsigned int length);
+void sendDiscovery();
+void sendAvailability();
+void sendStates();
+void mqttInitializationStart();
+void mqttInitializationStop();
+void mqttInitializeTickerHandler();
+
 void ledOneFlashHandler();
 void ledWiFiConnectingHandler();
+void distanceSensorUpdateHandler();
 void onMqttConnected();
-void mqttUpdate();
+
+void mqttUpdateStates();
 
 void scanI2C(void);
 
 Ticker ledOneTimeBlinker(ledOneFlashHandler, 20, 2);
 Ticker wifiConnectingBlinker(ledWiFiConnectingHandler, 100);
-Ticker mqttUpdaterTicker(mqttUpdate, MQTT_UPDATE_INIT_INTERVAL);
+Ticker mqttInitializeTicker(mqttInitializeTickerHandler, MQTT_INIT_INTERVAL);
+Ticker mqttUpdateStatesTicker(mqttUpdateStates, MQTT_UPDATE_STATES_INTERVAL);
+Ticker distanceSensorTicker(distanceSensorUpdateHandler, DISTANCE_SENSOR_UPDATE_INTERVAL);
 
 void setup()
 {
@@ -72,8 +85,7 @@ void setup()
   Serial.begin(115200);
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
-
-  scanI2C();
+  // scanI2C();
 
   // while (lcd.begin(COLUMS, ROWS) != 1) //colums - 20, rows - 4
   // {
@@ -82,8 +94,11 @@ void setup()
   // }
   portal.begin();
   config = portal.getConfig();
+  haAvailabilityTopic = config.configHaMqttDiscoveryTopicPrefix + haAvailabilityTopic;
+
   mqtt.setServer(config.mqttHost, 1883);
   mqtt.setBufferSize(MQTT_BUFFER_SIZE);
+  mqtt.setCallback(mqttCallback);
 
   if (!String(config.wifiSsid).isEmpty() && !String(config.wifiPassword).isEmpty()) {
     wifiConnectingBlinker.start();
@@ -91,7 +106,8 @@ void setup()
   } else {
     portal.startInAccessPointMode(AP_MODE_NETWORK_NAME.c_str());
   }
-  mqttUpdaterTicker.start();
+  mqttInitializeTicker.start();
+  mqttUpdateStatesTicker.start();
 }
 
 
@@ -99,7 +115,6 @@ void loop()
 {
   portal.loop();
   wifiConnectingBlinker.update();
-  mqttUpdaterTicker.update();
 
   if (WiFi.getMode() != WIFI_STA) {
     return;
@@ -118,9 +133,12 @@ void loop()
 
 
   // code below is executed only in STATION mode and WiFi connected
-
   mqtt.loop();
   ledOneTimeBlinker.update();
+  mqttInitializeTicker.update();
+  mqttUpdateStatesTicker.update();
+  distanceSensorTicker.update();
+
   if (!String(config.mqttHost).isEmpty()) {
     if (!mqtt.connected()) {
       if (mqtt.state() == MQTT_CONNECTION_LOST) {
@@ -140,6 +158,45 @@ void loop()
   }
 }
 
+void mqttCallback(char* topic, uint8_t* payload, unsigned int length)
+{
+  String p = "";
+  for (uint8_t i = 0; i < length; i++) {
+    p+= String(char(payload[i]));
+  }
+
+  if (haAvailabilityTopic.equalsIgnoreCase(topic)) {
+    Serial.print(F("HA status: "));
+    Serial.println(p);
+    if (p.equalsIgnoreCase("online")) {
+      mqttInitializationStart();
+    }
+  } else {
+    relays.handleMqtt(topic, payload, length);
+  }
+}
+
+void sendDiscovery()
+{
+  Serial.println(F("Sending discovery message"));
+  relays.sendHomeassistantDiscovery();
+  tempSensors.sendHomeassistantDiscovery();
+}
+
+void sendAvailability()
+{
+  Serial.println(F("Sending availability message"));
+  relays.sendAvailabilityMessage();
+  tempSensors.sendAvailabilityMessage();
+}
+
+void sendStates()
+{
+  Serial.println(F("Sending initial states"));
+  relays.sendState();
+  tempSensors.sendState();
+}
+
 void ledOneFlashHandler()
 {
   digitalWrite(LED_BUILTIN, ledOneTimeBlinker.counter() - 1);
@@ -154,44 +211,74 @@ void onMqttConnected()
 {
   Serial.println(F("Connected to MQTT"));
   while(!mqtt.connected()) {}
+  distanceSensorTicker.start();
+
   relays.setHomeassistantDiscoveryTopicPrefix(config.configHaMqttDiscoveryTopicPrefix);
   relays.begin();
+  tempSensors.setHomeassistantDiscoveryTopicPrefix(config.configHaMqttDiscoveryTopicPrefix);
+  tempSensors.begin();
+  Serial.println(F("Initialize subscriptions"));
+  relays.initSubscriptions();
+  Serial.print(F("Register subscription on "));
+  Serial.println(haAvailabilityTopic);
+  mqtt.subscribe(haAvailabilityTopic.c_str());
 }
 
-void mqttUpdate()
+void mqttUpdateStates()
+{
+  tempSensors.sendState();
+}
+
+
+
+void mqttInitializationStart()
+{
+  mqttInitialized = false;
+  mqttInitializationStep = MQTT_INIT_STEP_DISCOVERY;
+  mqttInitializeTicker.start();
+}
+
+void mqttInitializationStop()
+{
+  mqttInitializeTicker.stop();
+}
+
+void mqttInitializeTickerHandler()
 {
   if (!mqtt.connected()) {
     return;
   }
 
-  // steps triggered only once initialization
-  if (!mqttInitialized) {
-    switch (mqttInitializationStep)
-    {
-    case MQTT_INIT_STEP_DISCOVERY:
-      relays.sendHomeassistantDiscovery();
-      break;
-    case MQTT_INIT_STEP_AVAILABILITY:
-      relays.sendAvailabilityMessage();
-      break;
-    case MQTT_INIT_STEP_SUBSCRIPTIONS:
-      relays.initSubscriptions();
-      break;
-    case MQTT_INIT_STEP_STATES:
-      relays.sendState();
-      mqttInitialized = true;
-      mqttInitializationStep = MQTT_INIT_STEP_DISCOVERY;
-      mqttUpdaterTicker.interval(MQTT_UPDATE_INTERVAL);
-      break;
-    default:
-      break;
-    }
-    mqttInitializationStep++;
+  if (mqttInitialized) {
+    mqttInitializationStop();
+    return;
   }
-  // steps fired every MQTT_UPDATE_INTERVAL
-  else {
-    relays.sendAvailabilityMessage();
+
+  switch (mqttInitializationStep)
+  {
+  case MQTT_INIT_STEP_DISCOVERY:
+    sendDiscovery();
+    break;
+  case MQTT_INIT_STEP_AVAILABILITY:
+    sendAvailability();
+    break;
+  case MQTT_INIT_STEP_STATES:
+    sendStates();
+    break;
+  case MQTT_INIT_END:
+    Serial.println(F("Initialization finished"));
+    mqttInitialized = true;
+    break;
+  default:
+    break;
   }
+  mqttInitializationStep++;
+}
+
+void distanceSensorUpdateHandler()
+{
+  distanceSensorLastValue = distanceSensor.measureDistanceCm();
+  Serial.println(distanceSensorLastValue);
 }
 
 void scanI2C(void)
