@@ -13,7 +13,7 @@
 #define HA_SW_VERSION "0.0.1"
 #define HA_DEVICE_SN "PREGO1"
 #define HA_DEVICE_NAME "BRC1"
-#define HA_DISCO_RELAY_TOPIC_TPL "%s/switch/brc-r-%d/config"
+#define HA_DISCO_RELAY_TOPIC_TPL "%s/switch/"HA_DEVICE_NAME"/r-%d/config"
 #define HA_DISCO_DEVICE_INFO_JSON "{\"name\":\""HA_DEVICE_NAME"\",\"sw\":\"" HA_SW_VERSION "\",\"ids\":[\"" HA_DEVICE_SN "\"]}"
 #define HA_DISCO_RELAY_PAYLOAD_TPL "{\"name\":\"brc-relay-%d\",\"uniq_id\":\""HA_DEVICE_SN"-r-%d\",\"stat_t\":\"%s\",\"cmd_t\":\"%s\",\"avty_t\":\"%s\",\"pl_off\":\"off\",\"pl_on\":\"on\",\"dev\":%s}"
 
@@ -22,13 +22,14 @@ static const char* MQTT_RELAY_TOPIC_STATE_POSTFIX = "state";
 static const char* MQTT_RELAY_TOPIC_COMMAND_POSTFIX = "set";
 static const char* MQTT_RELAY_TOPIC_AVAILABLE_POSTFIX = "avty";
 
-typedef std::function<void(uint8_t, bool)> RelayStateCallback;
+typedef std::function<void(char*, bool)> RelayStateCallback;
 
 class Relays {
     public:
         Relays(RelayStateCallback callback, PubSubClient& mqtt, uint8_t pcf8574Address);
         Relays(PubSubClient& mqtt, uint8_t pcf8574Address);
         void begin();
+        bool handleMqtt(char* topic, uint8_t* payload, unsigned int length);
         bool setState(uint8_t relayId, bool on);
         bool getState(uint8_t relayId);
         uint8_t getCount() {
@@ -45,7 +46,6 @@ class Relays {
         PubSubClient* _mqtt;
         unsigned long _mqttAvalLastSentTime = 0;
         char* _hassioTopicPrefix;
-        void mqttCallback(char* topic, uint8_t* payload, unsigned int length);
         bool sendState(uint8 relayId, bool state);
         bool sendState(uint8 relayId);
         String getMqttDiscoveryTopic(uint8_t relayId);

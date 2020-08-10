@@ -17,13 +17,11 @@ _pcf8574(pcf8574Address)
 
 void Relays::begin()
 {
-    Serial.println(F("Initialize relays"));
     for (uint8_t i = 0; i < NUM_RELAYS; i++) {
         _pcf8574.pinMode(i, OUTPUT);
         _pcf8574.digitalWrite(i, RELAY_INITIAL_STATE);
     }
     _pcf8574.begin();
-    _mqtt->setCallback(std::bind(&Relays::mqttCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 }
 
 void Relays::setHomeassistantDiscoveryTopicPrefix(char* prefix)
@@ -77,7 +75,6 @@ bool Relays::sendHomeassistantDiscovery()
             HA_DISCO_DEVICE_INFO_JSON);
         _mqtt->publish(getMqttDiscoveryTopic(i).c_str(), payload);
     }
-    Serial.println(F("Discovery message sent"));
     return true;
 }
 
@@ -87,7 +84,6 @@ bool Relays::sendAvailabilityMessage()
         _mqtt->publish(getMqttAvabilityTopic(i).c_str(), RELAY_AVAILABILITY_PL);
     }
     _mqttAvalLastSentTime = millis();
-    Serial.println(F("Availability message sent"));
 }
 
 void Relays::initSubscriptions()
@@ -100,20 +96,20 @@ void Relays::initSubscriptions()
     }
 }
 
-void Relays::mqttCallback(char* topic, uint8_t* payload, unsigned int length)
+bool Relays::handleMqtt(char* topic, uint8_t* payload, unsigned int length)
 {
-    String t(topic);
-    if (t.startsWith(MQTT_RELAY_TOPIC_PREFIX)) {
-        uint8_t startIndex = String(MQTT_RELAY_TOPIC_PREFIX).length() + 1;
-        uint8_t endIndex = t.indexOf("/", startIndex + 1);
-        uint8_t relayId = atoi(t.substring(startIndex, endIndex).c_str());
-
+    if (length > 0) {
         String p = "";
         for (uint8_t i = 0; i < length; i++) {
-            p += String((char)payload[i]);
+            p += String(char(payload[i]));
         }
-        setState(relayId, p.equals(RELAY_STATE_ON_PAYLOAD));
+        for (uint8_t i = 0; i < NUM_RELAYS; i++) {
+            if (getMqttCommandTopic(i).equals(topic)) {
+                return setState(i, p.equals(RELAY_STATE_ON_PAYLOAD));
+            }
+        }
     }
+    return false;
 }
 
 bool Relays::sendState(uint8 relayId, bool state)
