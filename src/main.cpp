@@ -6,10 +6,11 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 #include <Ticker.h>
-#include <Relays.h>
 #include <HCSR04.h>
+#include <Relays.h>
 #include <TempSensors.h>
-
+#include <FlowRateSensors.h>
+#include <MqttPublisher.h>
 
 #define COLUMS 16
 #define ROWS   2
@@ -47,7 +48,12 @@ WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
 UltraSonicDistanceSensor distanceSensor(D7, D8);
 TempSensors tempSensors(mqtt, ONE_WIRE_BUS);
-Relays relays(mqtt, PCF_RELAYS_ADDR);
+
+bool relayStateHandler(uint8_t relayId, bool state);
+Relays relays(relayStateHandler, mqtt, PCF_RELAYS_ADDR);
+
+FlowRateSensors flowRateSensors(mqtt, D5, D6);
+MqttPublisher mqttPublisher(mqtt);
 
 bool isWiFiConnected = false;
 bool relaysStateSent = false;
@@ -57,6 +63,7 @@ uint8_t mqttInitializationStep = MQTT_INIT_STEP_DISCOVERY;
 String haAvailabilityTopic = "/status";
 
 void mqttCallback(char* topic, uint8_t* payload, unsigned int length);
+
 void sendDiscovery();
 void sendAvailability();
 void sendStates();
@@ -94,6 +101,9 @@ void setup()
   // }
   portal.begin();
   config = portal.getConfig();
+  mqttPublisher.setDiscoveryTopicPrefix(config.configHaMqttDiscoveryTopicPrefix);
+
+
   haAvailabilityTopic = config.configHaMqttDiscoveryTopicPrefix + haAvailabilityTopic;
 
   mqtt.setServer(config.mqttHost, 1883);
@@ -134,6 +144,8 @@ void loop()
 
   // code below is executed only in STATION mode and WiFi connected
   mqtt.loop();
+  flowRateSensors.update();
+  tempSensors.update();
   ledOneTimeBlinker.update();
   mqttInitializeTicker.update();
   mqttUpdateStatesTicker.update();
@@ -158,6 +170,11 @@ void loop()
   }
 }
 
+bool relayStateHandler(uint8_t relayId, bool state)
+{
+  mqttPublisher.sendState(Type::RELAY, String(relayId).c_str(), state);
+}
+
 void mqttCallback(char* topic, uint8_t* payload, unsigned int length)
 {
   String p = "";
@@ -172,29 +189,56 @@ void mqttCallback(char* topic, uint8_t* payload, unsigned int length)
       mqttInitializationStart();
     }
   } else {
-    relays.handleMqtt(topic, payload, length);
+    // relays.handleMqtt(topic, payload, length);
   }
 }
 
 void sendDiscovery()
 {
   Serial.println(F("Sending discovery message"));
-  relays.sendHomeassistantDiscovery();
-  tempSensors.sendHomeassistantDiscovery();
+
+  std::vector<String> relaysNames = relays.getNames();
+  for (uint8_t i =0; i < relaysNames.size(); i++) {
+    mqttPublisher.sendDiscovery(Type::RELAY, relaysNames[i].c_str());
+  }
+
+  std::vector<String> tempSensorsNames = tempSensors.getNames();
+  for (uint8_t i =0; i < tempSensorsNames.size(); i++) {
+    mqttPublisher.sendDiscovery(Type::TEMP_SENSOR, tempSensorsNames[i].c_str());
+  }
+
+  std::vector<String> waterSensorsNames = flowRateSensors.getNames();
+  for (uint8_t i =0; i < waterSensorsNames.size(); i++) {
+    mqttPublisher.sendDiscovery(Type::WATER_FLOW_SENSOR, waterSensorsNames[i].c_str());
+  }
 }
 
 void sendAvailability()
 {
   Serial.println(F("Sending availability message"));
-  relays.sendAvailabilityMessage();
-  tempSensors.sendAvailabilityMessage();
+  mqttPublisher.sendAvailability();
 }
 
 void sendStates()
 {
   Serial.println(F("Sending initial states"));
-  relays.sendState();
-  tempSensors.sendState();
+
+  std::vector<bool> relayStates = relays.getStates();
+  for (uint8_t i = 0; i < relayStates.size(); i++) {
+    mqttPublisher.sendState(Type::RELAY, String(i).c_str(), relayStates[i]);
+  }
+
+  std::vector<float> dsStates = tempSensors.getStates();
+  for (uint8_t i = 0; i < dsStates.size(); i++) {
+    mqttPublisher.sendState(Type::TEMP_SENSOR, String(i).c_str(), String(dsStates[i]).c_str());
+  }
+
+  std::vector<double> waterSensorsStates = flowRateSensors.getStates();
+  std::vector<String> waterSensorsNames = flowRateSensors.getNames();
+  for (uint8_t i = 0; i < waterSensorsStates.size(); i++) {
+    mqttPublisher.sendState(Type::WATER_FLOW_SENSOR, waterSensorsNames[i].c_str(), String(waterSensorsStates[i]).c_str());
+  }
+
 }
 
 void ledOneFlashHandler()
@@ -213,12 +257,11 @@ void onMqttConnected()
   while(!mqtt.connected()) {}
   distanceSensorTicker.start();
 
-  relays.setHomeassistantDiscoveryTopicPrefix(config.configHaMqttDiscoveryTopicPrefix);
   relays.begin();
-  tempSensors.setHomeassistantDiscoveryTopicPrefix(config.configHaMqttDiscoveryTopicPrefix);
   tempSensors.begin();
+  flowRateSensors.begin();
   Serial.println(F("Initialize subscriptions"));
-  relays.initSubscriptions();
+  // relays.initSubscriptions();
   Serial.print(F("Register subscription on "));
   Serial.println(haAvailabilityTopic);
   mqtt.subscribe(haAvailabilityTopic.c_str());
@@ -226,7 +269,7 @@ void onMqttConnected()
 
 void mqttUpdateStates()
 {
-  tempSensors.sendState();
+  // tempSensors.sendState();
 }
 
 
@@ -281,22 +324,22 @@ void distanceSensorUpdateHandler()
   Serial.println(distanceSensorLastValue);
 }
 
-void scanI2C(void)
-{
-  byte error, address;
-  uint8_t nDevices = 0;
+// void scanI2C(void)
+// {
+//   byte error, address;
+//   uint8_t nDevices = 0;
 
-  Serial.println(F("Scanning i2c bus..."));
-  for(uint8_t address = 1; address < 255; address++) {
-    Wire.beginTransmission(address);
-    if (Wire.endTransmission() == 0) {
-      Serial.print(F("i2c device found at address 0x"));
-      if (address<16) Serial.print("0");
-      Serial.println(address,HEX);
-      nDevices++;
-    }
-  }
-  if (nDevices == 0) {
-    Serial.println("Devices not found");
-  }
-}
+//   Serial.println(F("Scanning i2c bus..."));
+//   for(uint8_t address = 1; address < 255; address++) {
+//     Wire.beginTransmission(address);
+//     if (Wire.endTransmission() == 0) {
+//       Serial.print(F("i2c device found at address 0x"));
+//       if (address<16) Serial.print("0");
+//       Serial.println(address,HEX);
+//       nDevices++;
+//     }
+//   }
+//   if (nDevices == 0) {
+//     Serial.println("Devices not found");
+//   }
+// }
