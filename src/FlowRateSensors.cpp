@@ -10,13 +10,12 @@ ICACHE_RAM_ATTR static void hotWaterInterruptHandler(void) {
   flowRateSensorsPointer->hotWaterISR();
 }
 
-FlowRateSensors::FlowRateSensors(PubSubClient& mqtt, uint8_t coldWaterIntPin, uint8_t hotWaterIntPin)
+FlowRateSensors::FlowRateSensors(uint8_t coldWaterIntPin, uint8_t hotWaterIntPin)
 : _coldWaterSensor(coldWaterIntPin, FS400A), _hotWaterSensor(hotWaterIntPin, FS400A)
 {
   flowRateSensorsPointer = this;
   _coldWaterSensorPin = coldWaterIntPin;
   _hotWaterSensorPin = hotWaterIntPin;
-  _mqtt = &mqtt;
 }
 
 void FlowRateSensors::begin()

@@ -1,5 +1,4 @@
 #include <FlowMeter.h>
-#include <PubSubClient.h>
 
 #define DEFAULT_TICK_PERIOD 5000
 
@@ -14,7 +13,7 @@ typedef std::function<void(const char*, double)> FlowRateChangedCallback;
 
 class FlowRateSensors {
   public:
-    FlowRateSensors(PubSubClient& mqtt, uint8_t coldWaterIntPin, uint8_t hotWaterIntPin);
+    FlowRateSensors(uint8_t coldWaterIntPin, uint8_t hotWaterIntPin);
     void begin();
     void update();
     void setTickPeriod(unsigned long period);
@@ -31,7 +30,6 @@ class FlowRateSensors {
     }
 
   private:
-    PubSubClient* _mqtt;
     FlowMeter _coldWaterSensor;
     FlowMeter _hotWaterSensor;
     uint8_t _coldWaterSensorPin, _hotWaterSensorPin;

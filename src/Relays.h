@@ -1,4 +1,3 @@
-#include <PubSubClient.h>
 #include <PCF8574.h>
 
 #define NUM_RELAYS 8
@@ -14,7 +13,7 @@ typedef std::function<void(uint8_t, bool)> RelayStateChangedCallback;
 
 class Relays {
     public:
-        Relays(PubSubClient& mqtt, uint8_t pcf8574Address);
+        Relays(uint8_t pcf8574Address);
         void begin();
         bool setState(uint8_t relayId, bool on);
         bool setState(uint8_t relayId, String value);
@@ -30,5 +29,4 @@ class Relays {
     private:
         PCF8574 _pcf8574;
         RelayStateChangedCallback _stateChangedCallback;
-        PubSubClient* _mqtt;
 };

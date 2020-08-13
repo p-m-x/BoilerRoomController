@@ -29,6 +29,9 @@ static const char* MQTT_TOPIC_NAMESPACE = "home/boiler-room";
 #define MQTT_WATER_SENSOR_DISCOVERY_TOPIC_TPL "%s/sensor/"HA_DEVICE_NAME"/%s/config"
 #define MQTT_WATER_SENSOR_TOPIC_STATE_TPL "%s/"HA_DEVICE_NAME"-%s/state"
 
+#define MQTT_DISTANCE_SENSOR_DISCOVERY_TOPIC_TPL "%s/sensor/"HA_DEVICE_NAME"/%s/config"
+#define MQTT_DISTANCE_SENSOR_TOPIC_STATE_TPL "%s/"HA_DEVICE_NAME"-%s/state"
+
 enum Type { RELAY, TEMP_SENSOR, WATER_FLOW_SENSOR, DISTANCE_SENSOR, HOMEASSISTANT };
 
 typedef std::function<void(Type, const char*, String)> MqttSubscriptionCallback;

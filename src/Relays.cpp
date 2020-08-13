@@ -1,10 +1,9 @@
 #include <Relays.h>
 
-Relays::Relays(PubSubClient& mqtt, uint8_t pcf8574Address)
+Relays::Relays(uint8_t pcf8574Address)
 :
 _pcf8574(pcf8574Address)
 {
-    _mqtt = &mqtt;
 }
 
 void Relays::begin()

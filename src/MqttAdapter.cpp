@@ -41,6 +41,9 @@ String MqttAdapter::getStateTopic(Type type, const char* name)
         case WATER_FLOW_SENSOR:
             sprintf(buff, MQTT_WATER_SENSOR_TOPIC_STATE_TPL, MQTT_TOPIC_NAMESPACE, name);
             break;
+        case DISTANCE_SENSOR:
+            sprintf(buff, MQTT_DISTANCE_SENSOR_TOPIC_STATE_TPL, MQTT_TOPIC_NAMESPACE, name);
+            break;
         default:
             break;
 
@@ -86,6 +89,9 @@ String MqttAdapter::getDiscoveryTopic(Type type, const char* name)
             break;
         case WATER_FLOW_SENSOR:
             sprintf(buff, MQTT_WATER_SENSOR_DISCOVERY_TOPIC_TPL, _discoveryTopicPrefix, name);
+            break;
+        case DISTANCE_SENSOR:
+            sprintf(buff, MQTT_DISTANCE_SENSOR_DISCOVERY_TOPIC_TPL, _discoveryTopicPrefix, name);
             break;
         default:
             break;
@@ -143,6 +149,12 @@ bool MqttAdapter::sendDiscovery(Type type, const char* name)
             sprintf(nameBuff, "%s-%s", DEVICE_PLACE_NAME, name);
             json["name"] = nameBuff;
             json["stat_t"] = getStateTopic(type, name);
+            break;
+        case DISTANCE_SENSOR:
+            sprintf(nameBuff, "%s-%s", DEVICE_PLACE_NAME, name);
+            json["name"] = nameBuff;
+            json["stat_t"] = getStateTopic(type, name);
+            json["unit_of_meas"] = "cm";
             break;
         default:
             return false;

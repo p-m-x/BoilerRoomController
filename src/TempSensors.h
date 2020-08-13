@@ -1,4 +1,3 @@
-#include <PubSubClient.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <ArduinoJson.h>
@@ -10,7 +9,7 @@ typedef std::function<void(const char*, float)> TemperatureChangedCallback;
 
 class TempSensors : DallasTemperature {
     public:
-        TempSensors(PubSubClient& mqtt, uint8_t oneWirePin);
+        TempSensors(uint8_t oneWirePin);
         void begin();
         void update();
         void setValueChangedCallback(TemperatureChangedCallback c) {
@@ -21,7 +20,6 @@ class TempSensors : DallasTemperature {
     private:
         DallasTemperature _ds;
         OneWire _oneWire;
-        PubSubClient* _mqtt;
         TemperatureChangedCallback _valuesChangedCallback;
         unsigned long _lastTempRequestTime = 0;
         std::vector<float> _lastValues = {};

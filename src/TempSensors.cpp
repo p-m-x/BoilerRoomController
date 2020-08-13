@@ -1,9 +1,8 @@
 #include <TempSensors.h>
 
-TempSensors::TempSensors(PubSubClient& mqtt, uint8_t oneWirePin)
+TempSensors::TempSensors(uint8_t oneWirePin)
 : _oneWire(oneWirePin), _ds(&_oneWire)
 {
-    _mqtt = &mqtt;
 }
 
 void TempSensors::begin()
