@@ -1,13 +1,5 @@
 #include <Relays.h>
 
-Relays::Relays(RelayStateCallback callback, PubSubClient& mqtt, uint8_t pcf8574Address)
-:
-_pcf8574(pcf8574Address)
-{
-    _callback = callback;
-    _mqtt = &mqtt;
-}
-
 Relays::Relays(PubSubClient& mqtt, uint8_t pcf8574Address)
 :
 _pcf8574(pcf8574Address)
@@ -36,9 +28,18 @@ std::vector<String> Relays::getNames()
 bool Relays::setState(uint8_t relayId, bool on)
 {
     if (_pcf8574.digitalWrite(relayId, (uint8_t)(on == (RELAY_ACTIVE_VALUE == 1)))) {
-        return _callback(relayId, on);
+        if (_stateChangedCallback != NULL) {
+            _stateChangedCallback(relayId, on);
+        }
+        return true;
+
     }
     return false;
+}
+
+bool Relays::setState(uint8_t relayId, String value)
+{
+    return setState(relayId, value.equals(RELAY_STATE_ON_PAYLOAD));
 }
 
 bool Relays::getState(uint8_t relayId)

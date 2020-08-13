@@ -1,12 +1,16 @@
 #include <FlowMeter.h>
 #include <PubSubClient.h>
 
-#define DEFAULT_TICK_PERIOD 1000
+#define DEFAULT_TICK_PERIOD 5000
 
-static const char* SENSOR_NAME_WATER_COLD = "cold-water";
-static const char* SENSOR_NAME_WATER_HOT = "hot-water";
-static const char* SENSOR_UNIT_FLOW = "flow";
-static const char* SENSOR_UNIT_VOLUME = "volume";
+static const char* COLD_WATER_FLOW_LABEL = "cold-water-flow";
+static const char* COLD_WATER_VOLUME_LABEL = "cold-water-volume";
+static const char* HOT_WATER_FLOW_LABEL = "hot-water-flow";
+static const char* HOT_WATER_VOLUME_LABEL = "hot-water-volume";
+
+enum Measurement {COLD_WATER_FLOW, COLD_WATER_VOLUME, HOT_WATER_FLOW, HOT_WATER_VOLUME};
+
+typedef std::function<void(const char*, double)> FlowRateChangedCallback;
 
 class FlowRateSensors {
   public:
@@ -22,6 +26,9 @@ class FlowRateSensors {
     }
     std::vector<double> getStates();
     std::vector<String> getNames();
+    void setValueChangedCallback(FlowRateChangedCallback c) {
+      _valuesChangeCallback = c;
+    }
 
   private:
     PubSubClient* _mqtt;
@@ -30,6 +37,13 @@ class FlowRateSensors {
     uint8_t _coldWaterSensorPin, _hotWaterSensorPin;
     unsigned long _tickPeriod = DEFAULT_TICK_PERIOD;
     unsigned long _lastTickTime = 0;
-    String getNameFormatString(const char* arg1, const char* arg2);
+    std::vector<String> _names = {
+      COLD_WATER_FLOW_LABEL,
+      COLD_WATER_VOLUME_LABEL,
+      HOT_WATER_FLOW_LABEL,
+      HOT_WATER_VOLUME_LABEL
+    };
+    std::vector<double> _lastValues = {};
+    FlowRateChangedCallback _valuesChangeCallback;
 };
 

@@ -4,19 +4,25 @@
 #include <ArduinoJson.h>
 
 #define TEMP_REQUEST_INTERVAL 10000
-#define DS_DEVICES_MAX_COUNT 10
 #define TEMPERATURE_PRECISION 9
+
+typedef std::function<void(const char*, float)> TemperatureChangedCallback;
 
 class TempSensors : DallasTemperature {
     public:
         TempSensors(PubSubClient& mqtt, uint8_t oneWirePin);
         void begin();
         void update();
+        void setValueChangedCallback(TemperatureChangedCallback c) {
+            _valuesChangedCallback = c;
+        }
         std::vector<String> getNames();
         std::vector<float> getStates();
     private:
         DallasTemperature _ds;
         OneWire _oneWire;
         PubSubClient* _mqtt;
+        TemperatureChangedCallback _valuesChangedCallback;
         unsigned long _lastTempRequestTime = 0;
+        std::vector<float> _lastValues = {};
 };
