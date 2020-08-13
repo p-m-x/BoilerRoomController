@@ -4,14 +4,16 @@
 #include <PCF8574.h>
 #include <portal.h>
 #include <ESP8266WiFi.h>
+#include <ArduinoOTA.h>
 #include <PubSubClient.h>
 #include <Ticker.h>
-#include <HCSR04.h>
 #include <Relays.h>
 #include <TempSensors.h>
 #include <FlowRateSensors.h>
+#include <DistanceSensor.h>
 #include <MqttAdapter.h>
 
+#define DEBUG
 #define COLUMS 16
 #define ROWS   2
 #define PAGE   ((COLUMS) * (ROWS))
@@ -20,7 +22,6 @@
 #define ONE_WIRE_BUS D3
 
 #define MQTT_INIT_INTERVAL 1000
-#define MQTT_AVAILABLE_INTERVAL 60000
 #define DISTANCE_SENSOR_UPDATE_INTERVAL 5000 //3600000 // 1h
 #define MQTT_INIT_STEP_DISCOVERY 1
 #define MQTT_INIT_STEP_AVAILABILITY 2
@@ -42,13 +43,9 @@ const char* MQTT_CLIENT_NAME = "Controller-1";
 // LiquidCrystal_I2C lcd(PCF8574_ADDR_A20_A10_A00, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE);
 
 
-
-bool isWiFiConnected = false;
-bool relaysStateSent = false;
 bool mqttInitialized = false;
 double distanceSensorLastValue = 0.0;
 uint8_t mqttInitializationStep = MQTT_INIT_STEP_DISCOVERY;
-String haAvailabilityTopic = "/status";
 
 void sendDiscovery();
 void sendAvailability();
@@ -63,10 +60,11 @@ void distanceSensorUpdateHandler();
 void onMqttConnected();
 
 void mqttAdapterSubscriptionCallback(Type type, const char* name, String value);
-bool relayStateChangedHandler(uint8_t relayId, bool state);
 
+bool relayStateChangedHandler(uint8_t relayId, bool state);
 void temperatureChangedHandler(const char* name, float value);
 void waterFlowChangedHandler(const char* name, double value);
+void distanceChangedHandler(const char* name, double value);
 
 void scanI2C(void);
 
@@ -74,16 +72,15 @@ Portal portal(80);
 PortalConfig config;
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
-UltraSonicDistanceSensor distanceSensor(D7, D8);
-TempSensors tempSensors(mqtt, ONE_WIRE_BUS);
-Relays relays(mqtt, PCF_RELAYS_ADDR);
-FlowRateSensors flowRateSensors(mqtt, D5, D6);
+DistanceSensor distanceSensor(D7, D8);
+TempSensors tempSensors(ONE_WIRE_BUS);
+Relays relays(PCF_RELAYS_ADDR);
+FlowRateSensors flowRateSensors(D5, D6);
 MqttAdapter mqttAdapter(mqtt, mqttAdapterSubscriptionCallback);
 
 Ticker ledOneTimeBlinker(ledOneFlashHandler, 20, 2);
 Ticker wifiConnectingBlinker(ledWiFiConnectingHandler, 100);
 Ticker mqttInitializeTicker(mqttInitializeTickerHandler, MQTT_INIT_INTERVAL);
-Ticker distanceSensorTicker(distanceSensorUpdateHandler, DISTANCE_SENSOR_UPDATE_INTERVAL);
 
 void setup()
 {
@@ -115,8 +112,30 @@ void setup()
   relays.setRelayStateChangedCallback(relayStateChangedHandler);
   tempSensors.setValueChangedCallback(temperatureChangedHandler);
   flowRateSensors.setValueChangedCallback(waterFlowChangedHandler);
+  distanceSensor.setDistanceChangedCallback(distanceChangedHandler);
 
+  ArduinoOTA.onStart([]() {
+    Serial.println("OTA Start");
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("OTA End");
+    Serial.println("Rebooting...");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r\n", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+  });
+  ArduinoOTA.begin();
   mqttInitializeTicker.start();
+
+
 }
 
 
@@ -143,12 +162,13 @@ void loop()
 
   // code below is executed only in STATION mode and WiFi connected
   mqtt.loop();
+  ArduinoOTA.handle();
   ledOneTimeBlinker.update();
   mqttInitializeTicker.update();
   if (mqttInitialized && mqtt.connected()) {
     flowRateSensors.update();
     tempSensors.update();
-    distanceSensorTicker.update();
+    distanceSensor.update();
   }
 
 
@@ -221,6 +241,17 @@ void waterFlowChangedHandler(const char* name, double value)
   mqttAdapter.sendState(Type::WATER_FLOW_SENSOR, name, String(value).c_str());
 }
 
+void distanceChangedHandler(const char* name, double value)
+{
+  #ifdef DEBUG
+  Serial.print(F("Sending distance update #"));
+  Serial.print(name);
+  Serial.print(F(" v: "));
+  Serial.println(value);
+  #endif
+  mqttAdapter.sendState(Type::DISTANCE_SENSOR, name, String(value).c_str());
+}
+
 void sendDiscovery()
 {
   std::vector<String> relaysNames = relays.getNames();
@@ -237,6 +268,9 @@ void sendDiscovery()
   for (uint8_t i =0; i < waterSensorsNames.size(); i++) {
     mqttAdapter.sendDiscovery(Type::WATER_FLOW_SENSOR, waterSensorsNames[i].c_str());
   }
+
+  mqttAdapter.sendDiscovery(Type::DISTANCE_SENSOR, distanceSensor.getName().c_str());
+
 }
 
 void sendAvailability()
@@ -246,26 +280,26 @@ void sendAvailability()
 
 void sendStates()
 {
+  std::vector<bool> relayStates = relays.getStates();
+  for (uint8_t i = 0; i < relayStates.size(); i++) {
+    mqttAdapter.sendState(Type::RELAY, String(i).c_str(), relayStates[i]);
+  }
 
+  std::vector<float> dsStates = tempSensors.getStates();
+  for (uint8_t i = 0; i < dsStates.size(); i++) {
+    if (dsStates[i] == NULL) {
+      continue;
+    }
+    mqttAdapter.sendState(Type::TEMP_SENSOR, String(i).c_str(), String(dsStates[i]).c_str());
+  }
 
-  // std::vector<bool> relayStates = relays.getStates();
-  // for (uint8_t i = 0; i < relayStates.size(); i++) {
-  //   mqttAdapter.sendState(Type::RELAY, String(i).c_str(), relayStates[i]);
-  // }
+  std::vector<double> waterSensorsStates = flowRateSensors.getStates();
+  std::vector<String> waterSensorsNames = flowRateSensors.getNames();
+  for (uint8_t i = 0; i < waterSensorsStates.size(); i++) {
+    mqttAdapter.sendState(Type::WATER_FLOW_SENSOR, waterSensorsNames[i].c_str(), String(waterSensorsStates[i]).c_str());
+  }
 
-  // // std::vector<float> dsStates = tempSensors.getStates();
-  // // for (uint8_t i = 0; i < dsStates.size(); i++) {
-  // //   if (dsStates[i] == NULL) {
-  // //     continue;
-  // //   }
-  // //   mqttAdapter.sendState(Type::TEMP_SENSOR, String(i).c_str(), String(dsStates[i]).c_str());
-  // // }
-
-  // std::vector<double> waterSensorsStates = flowRateSensors.getStates();
-  // std::vector<String> waterSensorsNames = flowRateSensors.getNames();
-  // for (uint8_t i = 0; i < waterSensorsStates.size(); i++) {
-  //   mqttAdapter.sendState(Type::WATER_FLOW_SENSOR, waterSensorsNames[i].c_str(), String(waterSensorsStates[i]).c_str());
-  // }
+  mqttAdapter.sendState(Type::DISTANCE_SENSOR, distanceSensor.getName().c_str(), String(distanceSensor.getValue()).c_str());
 
 }
 
@@ -283,7 +317,6 @@ void onMqttConnected()
 {
   Serial.println(F("Connected to MQTT"));
   while(!mqtt.connected()) {}
-  distanceSensorTicker.start();
 
   relays.begin();
   tempSensors.begin();
@@ -341,12 +374,6 @@ void mqttInitializeTickerHandler()
     break;
   }
   mqttInitializationStep++;
-}
-
-void distanceSensorUpdateHandler()
-{
-  distanceSensorLastValue = distanceSensor.measureDistanceCm();
-  Serial.println(distanceSensorLastValue);
 }
 
 // void scanI2C(void)
