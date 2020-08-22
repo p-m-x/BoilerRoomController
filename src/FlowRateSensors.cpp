@@ -24,7 +24,7 @@ void FlowRateSensors::begin()
   pinMode(_hotWaterSensorPin, INPUT_PULLUP);
 
   attachInterrupt(digitalPinToInterrupt(_coldWaterSensorPin), coldWaterInterruptHandler, RISING);
-  attachInterrupt(digitalPinToInterrupt(_coldWaterSensorPin), hotWaterInterruptHandler, RISING);
+  attachInterrupt(digitalPinToInterrupt(_hotWaterSensorPin), hotWaterInterruptHandler, RISING);
 
   _lastValues.resize(4);
 }
