@@ -33,6 +33,7 @@ class Portal {
       void loop();
       bool isWiFiConnected();
       PortalConfig getConfig();
+      void clearWiFiCredentials();
 
     private:
       PortalConfig _config;
@@ -44,6 +45,7 @@ class Portal {
       String _randomHash = "";
       String indexTemplateProcessor(String arg);
       void loadConfig();
+      void saveConfig();
       void startHTTPServer();
       void stopHTTPServer();
 

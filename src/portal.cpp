@@ -23,6 +23,13 @@ bool Portal::begin()
   return true;
 }
 
+void Portal::clearWiFiCredentials()
+{
+  strcpy(_config.wifiPassword, "");
+  strcpy(_config.wifiSsid, "");
+  saveConfig();
+}
+
 void Portal::startInAccessPointMode(const char* SSID)
 {
   Serial.println(F("Run in AP mode"));
@@ -200,9 +207,7 @@ void Portal::handleUpdateConfigEndpoint(AsyncWebServerRequest *request)
   strcpy(_config.mqttPassword, request->arg("mqtt-password").c_str());
   strcpy(_config.configHaMqttDiscoveryTopicPrefix, request->arg("config-ha--mqtt-disco-topic-prefix").c_str());
 
-  File file = SPIFFS.open(CONFIG_FILENAME, "w");
-  file.write((char *)&_config, sizeof(_config));
-  file.close();
+  saveConfig();
 
   request->redirect("/");
 }
@@ -239,6 +244,13 @@ void Portal::loadConfig()
     return;
   }
   Serial.println(F("Configuration loaded"));
+}
+
+void Portal::saveConfig()
+{
+  File file = SPIFFS.open(CONFIG_FILENAME, "w");
+  file.write((char *)&_config, sizeof(_config));
+  file.close();
 }
 
 PortalConfig Portal::getConfig()
