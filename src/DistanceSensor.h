@@ -1,10 +1,9 @@
 #include <HCSR04.h>
 
-#define SAMPLE_COUNT 5
-#define REFRESH_INTERVAL 5000
-#define SAMPLE_INTERVAL 100
+#define REFRESH_INTERVAL 30 * 1000
 #define SENSOR_NAME "salt-level"
 #define DISTANCE_DIFF_RATIO 1
+#define LEVEL_MAX_DISTANCE -100
 
 typedef std::function<void(const char*, double)> DistanceChangedCallback;
 
@@ -24,11 +23,9 @@ class DistanceSensor
         }
     private:
         UltraSonicDistanceSensor _sensor;
-        std::array<double, SAMPLE_COUNT> _samples;
         double _lastValue = 0.0;
         unsigned long _lastRefreshTime = 0;
-        unsigned long _lastSampleTime = 0;
-        uint8_t _sampleCounter = 0;
         DistanceChangedCallback _distanceChangedCallback;
+        double calculateLevel(double distance);
 
 };

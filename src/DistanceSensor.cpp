@@ -14,28 +14,21 @@ void DistanceSensor::update()
 
     if (_lastRefreshTime + REFRESH_INTERVAL < millis()) {
         _lastRefreshTime = millis();
+        double distance = _sensor.measureDistanceCm();
+        if (abs(distance - _lastValue) >= DISTANCE_DIFF_RATIO) {
+            _distanceChangedCallback(SENSOR_NAME, calculateLevel(distance));
+            _lastValue = distance;
+        }
     }
 
-    if (_lastRefreshTime + REFRESH_INTERVAL > millis()) {
-        if (_sampleCounter < SAMPLE_COUNT && _lastSampleTime + SAMPLE_INTERVAL < millis()) {
-            _lastSampleTime = millis();
-            _samples[_sampleCounter++] =_sensor.measureDistanceCm();
-        }
+}
 
-        if (_sampleCounter == SAMPLE_COUNT) {
-            double sum = 0.0;
-            for (uint8_t s = 0; s < _samples.size(); s++) {
-                sum += _sensor.measureDistanceCm();
-            }
-            double distance = sum /_samples.size();
-            if (abs(distance - _lastValue) >= DISTANCE_DIFF_RATIO) {
-                _distanceChangedCallback(SENSOR_NAME, sum /_samples.size());
-                _lastValue = distance;
-            }
-
-            _sampleCounter = 0;
-        }
-
+double DistanceSensor::calculateLevel(double distance)
+{
+    double level = distance / abs(LEVEL_MAX_DISTANCE);
+    if (LEVEL_MAX_DISTANCE < 0) {
+        level = 1 - level;
     }
+    return level * 100;
 
 }
