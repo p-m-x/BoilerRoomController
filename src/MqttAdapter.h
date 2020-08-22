@@ -11,6 +11,7 @@
 #define SUBSCRIPTION_QOS 0
 
 #define AVAILABILITY_ONLINE_PL "online"
+#define AVAILABILITY_OFFLINE_PL "offline"
 #define MQTT_DISCOVERY_TOPIC_PREFIX "homeassistant"
 
 static const char* DEVICE_PLACE_NAME = "boiler-room";
@@ -36,6 +37,12 @@ enum Type { RELAY, TEMP_SENSOR, WATER_FLOW_SENSOR, DISTANCE_SENSOR, HOMEASSISTAN
 
 typedef std::function<void(Type, const char*, String)> MqttSubscriptionCallback;
 
+typedef struct LedBlinker {
+    uint8_t ledPin;
+    unsigned long triggerTime;
+    unsigned long count;
+};
+
 class MqttAdapter
 {
 
@@ -45,6 +52,7 @@ private:
     std::vector<String> _subscriptionName = {};
     std::vector<Type> _subscriptionType = {};
     MqttSubscriptionCallback _callback;
+    LedBlinker _blinkerSendLed, _blinkerReceiveLed;
     void handleMqttCallback(char* topic, uint8_t* payload, unsigned int length);
     String getStateTopic(Type type, const char* name);
     String getSubscriptionTopic(Type type, const char* name);
@@ -59,7 +67,13 @@ public:
     bool sendState(Type type, const char* sensorId, const char* value);
     bool sendState(Type type, const char* sensorId, bool value);
     bool sendDiscovery(Type type, const char* name);
-    bool sendAvailability();
+    bool sendAvailability(bool);
     bool subscribe(Type type, const char* name);
+    void setSendLedPin(uint8_t pin) {
+        _blinkerSendLed.ledPin = pin;
+    };
+    void setReceiveLedPin(uint8_t pin) {
+        _blinkerReceiveLed.ledPin = pin;
+    };
 };
 

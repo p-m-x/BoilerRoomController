@@ -168,9 +168,9 @@ bool MqttAdapter::sendDiscovery(Type type, const char* name)
     return _mqtt->publish(topic.c_str(), payload);
 }
 
-bool MqttAdapter::sendAvailability()
+bool MqttAdapter::sendAvailability(bool online)
 {
-    return _mqtt->publish(getAvailabilityTopic().c_str(), AVAILABILITY_ONLINE_PL);
+    return _mqtt->publish(getAvailabilityTopic().c_str(), online ? AVAILABILITY_ONLINE_PL : AVAILABILITY_OFFLINE_PL);
 }
 
 bool MqttAdapter::subscribe(Type type, const char* name)
