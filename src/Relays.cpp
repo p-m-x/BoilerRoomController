@@ -26,6 +26,35 @@ std::vector<String> Relays::getNames()
 
 bool Relays::setState(uint8_t relayId, bool on)
 {
+    // check if _alwaysSingleRelayId contains relayId
+    bool singleRelay = false;
+    if (on) {
+        for (uint8_t i = 0; i < _alwaysSingleRelayId.size(); i++) {
+            if (relayId == _alwaysSingleRelayId[i]) {
+                singleRelay = true;
+                break;
+            }
+        }
+    }
+
+    // turn off other relays from the list
+    if (singleRelay) {
+        for (uint8_t i = 0; i < _alwaysSingleRelayId.size(); i++) {
+            if (relayId == _alwaysSingleRelayId[i]) continue;
+            if (getState(_alwaysSingleRelayId[i])) changeState(_alwaysSingleRelayId[i], false);
+        }
+    }
+    // turn on selected relyId
+    return changeState(relayId, on);
+}
+
+bool Relays::setState(uint8_t relayId, String value)
+{
+    return setState(relayId, value.equals(RELAY_STATE_ON_PAYLOAD));
+}
+
+bool Relays::changeState(uint8_t relayId, bool on)
+{
     if (_pcf8574.digitalWrite(relayId, (uint8_t)(on == (RELAY_ACTIVE_VALUE == 1)))) {
         if (_stateChangedCallback != NULL) {
             _stateChangedCallback(relayId, on);
@@ -34,11 +63,6 @@ bool Relays::setState(uint8_t relayId, bool on)
 
     }
     return false;
-}
-
-bool Relays::setState(uint8_t relayId, String value)
-{
-    return setState(relayId, value.equals(RELAY_STATE_ON_PAYLOAD));
 }
 
 bool Relays::getState(uint8_t relayId)

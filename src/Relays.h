@@ -29,4 +29,6 @@ class Relays {
     private:
         PCF8574 _pcf8574;
         RelayStateChangedCallback _stateChangedCallback;
+        std::vector<uint8_t> _alwaysSingleRelayId = {0,1,2,3,4,5};
+        bool changeState(uint8_t relayId, bool on);
 };
