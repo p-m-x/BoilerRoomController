@@ -1,6 +1,6 @@
 #include <Arduino.h>
-#include <Wire.h>              //for ESP8266 use bug free i2c driver https://github.com/enjoyneering/ESP8266-I2C-Driver
-// #include <LiquidCrystal_I2C.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
 #include <PCF8574.h>
 #include <portal.h>
 #include <ESP8266WiFi.h>
@@ -12,14 +12,24 @@
 #include <FlowRateSensors.h>
 #include <DistanceSensor.h>
 #include <MqttAdapter.h>
+#include <AceButton.h>
+using namespace ace_button;
+
+ADC_MODE(ADC_VCC);
 
 #define DEBUG
-#define COLUMS 16
-#define ROWS   2
-#define PAGE   ((COLUMS) * (ROWS))
+#define LCD_COLUMS 16
+#define LCD_ROWS   2
+#define LCD_BACKLIGHT_TIME 5000
+#define PAGE   ((LCD_COLUMS) * (LCD_ROWS))
 #define MQTT_BUFFER_SIZE 512
 #define PCF_RELAYS_ADDR 0x27
 #define ONE_WIRE_BUS D3
+#define WATER_FLOW_RATE_1 D7
+#define WATER_FLOW_RATE_2 D8
+#define DISTANCE_SENS_TRIGG D5
+#define DISTANCE_SENS_ECHO D6
+#define FUNC_BUTTON_PIN D0
 
 #define MQTT_INIT_INTERVAL 1000
 #define MQTT_INIT_STEP_DISCOVERY 1
@@ -27,34 +37,28 @@
 #define MQTT_INIT_STEP_STATES 3
 #define MQTT_INIT_END 4
 
-byte loaderChars[5][8] = {
-  {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10},
-  {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08},
-  {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04},
-  {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02},
-  {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
-};
-
 const String AP_MODE_NETWORK_NAME = "BRC-WiFi";
 const char* MQTT_CLIENT_NAME = "Controller-1";
 
 
-// LiquidCrystal_I2C lcd(PCF8574_ADDR_A20_A10_A00, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE);
+LiquidCrystal_I2C lcd(PCF8574_ADDR_A20_A10_A00, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE);
 
 
 bool mqttInitialized = false;
 double distanceSensorLastValue = 0.0;
 uint8_t mqttInitializationStep = MQTT_INIT_STEP_DISCOVERY;
+uint8_t lcdStatusPosition = 0;
 
 void sendDiscovery();
 void sendAvailability();
+void sendUnavailability();
 void sendStates();
 void mqttInitializationStart();
 void mqttInitializationStop();
 void mqttInitializeTickerHandler();
 
-void ledOneFlashHandler();
 void ledWiFiConnectingHandler();
+void lcdBackLightHandler();
 void distanceSensorUpdateHandler();
 void onMqttConnected();
 
@@ -64,22 +68,27 @@ bool relayStateChangedHandler(uint8_t relayId, bool state);
 void temperatureChangedHandler(const char* name, float value);
 void waterFlowChangedHandler(const char* name, double value);
 void distanceChangedHandler(const char* name, double value);
+void funcButtonHandler(AceButton* button, uint8_t eventType, uint8_t buttonState);
 
+void lcdBacklight();
+void lcdShowNext();
 void scanI2C(void);
 
 Portal portal(80);
 PortalConfig config;
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
-DistanceSensor distanceSensor(D7, D8);
+DistanceSensor distanceSensor(DISTANCE_SENS_TRIGG, DISTANCE_SENS_ECHO);
 TempSensors tempSensors(ONE_WIRE_BUS);
 Relays relays(PCF_RELAYS_ADDR);
-FlowRateSensors flowRateSensors(D5, D6);
+FlowRateSensors flowRateSensors(WATER_FLOW_RATE_1, WATER_FLOW_RATE_2);
 MqttAdapter mqttAdapter(mqtt, mqttAdapterSubscriptionCallback);
 
-Ticker ledOneTimeBlinker(ledOneFlashHandler, 20, 2);
 Ticker wifiConnectingBlinker(ledWiFiConnectingHandler, 100);
 Ticker mqttInitializeTicker(mqttInitializeTickerHandler, MQTT_INIT_INTERVAL);
+Ticker lcdBacklightTicker(lcdBackLightHandler, 5000, 1);
+
+AceButton funcButton(FUNC_BUTTON_PIN);
 
 void setup()
 {
@@ -87,21 +96,37 @@ void setup()
   Serial.begin(115200);
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
-  // scanI2C();
 
-  // while (lcd.begin(COLUMS, ROWS) != 1) //colums - 20, rows - 4
-  // {
-  //   Serial.println(F("PCF8574 is not connected or lcd pins declaration is wrong. Only pins numbers: 4,5,6,16,11,12,13,14 are legal."));
-  //   delay(5000);
-  // }
+  pinMode(FUNC_BUTTON_PIN, INPUT_PULLUP);
+  ButtonConfig* buttonConfig = funcButton.getButtonConfig();
+
+  buttonConfig->setEventHandler(funcButtonHandler);
+  buttonConfig->setFeature(ButtonConfig::kFeatureClick);
+  // buttonConfig->setFeature(ButtonConfig::kFeatureSuppressAll);
+  buttonConfig->setFeature(ButtonConfig::kFeatureLongPress);
+  buttonConfig->setLongPressDelay(5000);
+  scanI2C();
+
+  while (lcd.begin(LCD_COLUMS, LCD_ROWS) != 1) //colums - 20, rows - 4
+  {
+    Serial.println(F("PCF8574 is not connected or lcd pins declaration is wrong. Only pins numbers: 4,5,6,16,11,12,13,14 are legal."));
+    delay(5000);
+  }
   portal.begin();
   config = portal.getConfig();
 
+  lcd.clear();
   if (!String(config.wifiSsid).isEmpty() && !String(config.wifiPassword).isEmpty()) {
     wifiConnectingBlinker.start();
     portal.startInStationMode(config.wifiSsid, config.wifiPassword);
+    lcd.print(F("STATION"));
+    lcd.setCursor(0, 1);
+    lcd.print(F("CONNECTING..."));
   } else {
     portal.startInAccessPointMode(AP_MODE_NETWORK_NAME.c_str());
+    lcd.print(F("ACCESS POINT"));
+    lcd.setCursor(0, 1);
+    lcd.print(WiFi.SSID());
   }
 
   mqtt.setServer(config.mqttHost, 1883);
@@ -115,13 +140,27 @@ void setup()
 
   ArduinoOTA.onStart([]() {
     Serial.println("OTA Start");
+    sendUnavailability();
+    digitalWrite(LED_BUILTIN, LOW);
+    lcd.clear();
+    lcd.print(F("UPDATING FW..."));
+    lcdBacklight();
   });
   ArduinoOTA.onEnd([]() {
+    sendUnavailability();
     Serial.println("OTA End");
     Serial.println("Rebooting...");
+    lcd.clear();
+    lcd.print(F("REBOOTING..."));
+    lcdBacklight();
   });
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r\n", (progress / (total / 100)));
+    uint8_t percent = (progress / (total / 100));
+    Serial.printf("Progress: %u%%\r\n", percent);
+    lcd.setCursor(0, 1);
+    lcd.print(percent);
+    lcd.print(F("%"));
+    lcdBacklight();
   });
   ArduinoOTA.onError([](ota_error_t error) {
     Serial.printf("Error[%u]: ", error);
@@ -132,14 +171,13 @@ void setup()
     else if (error == OTA_END_ERROR) Serial.println("End Failed");
   });
   ArduinoOTA.begin();
-  mqttInitializeTicker.start();
-
-
 }
 
 
 void loop()
 {
+  ArduinoOTA.handle();
+  funcButton.check();
   portal.loop();
   wifiConnectingBlinker.update();
 
@@ -156,14 +194,17 @@ void loop()
     wifiConnectingBlinker.stop();
     // make sure to turn off status led on WiFi connected
     digitalWrite(LED_BUILTIN, HIGH);
+    lcd.clear();
+    lcd.print(F("CONNECTED"));
+    lcdBacklight();
+    mqttInitializationStart();
   }
 
 
   // code below is executed only in STATION mode and WiFi connected
   mqtt.loop();
-  ArduinoOTA.handle();
-  ledOneTimeBlinker.update();
   mqttInitializeTicker.update();
+  lcdBacklightTicker.update();
   if (mqttInitialized && mqtt.connected()) {
     flowRateSensors.update();
     tempSensors.update();
@@ -253,6 +294,7 @@ void distanceChangedHandler(const char* name, double value)
 
 void sendDiscovery()
 {
+
   std::vector<String> relaysNames = relays.getNames();
   for (uint8_t i =0; i < relaysNames.size(); i++) {
     mqttAdapter.sendDiscovery(Type::RELAY, relaysNames[i].c_str());
@@ -274,7 +316,12 @@ void sendDiscovery()
 
 void sendAvailability()
 {
-  mqttAdapter.sendAvailability();
+  mqttAdapter.sendAvailability(true);
+}
+
+void sendUnavailability()
+{
+  mqttAdapter.sendAvailability(false);
 }
 
 void sendStates()
@@ -302,11 +349,6 @@ void sendStates()
 
 }
 
-void ledOneFlashHandler()
-{
-  digitalWrite(LED_BUILTIN, ledOneTimeBlinker.counter() - 1);
-}
-
 void ledWiFiConnectingHandler()
 {
   digitalWrite(LED_BUILTIN, wifiConnectingBlinker.counter() % 2 > 0);
@@ -330,6 +372,9 @@ void onMqttConnected()
 
 void mqttInitializationStart()
 {
+  lcd.clear();
+  lcd.print(F("INITIALIZING..."));
+  lcd.backlight();
   mqttInitialized = false;
   mqttInitializationStep = MQTT_INIT_STEP_DISCOVERY;
   mqttInitializeTicker.start();
@@ -338,6 +383,9 @@ void mqttInitializationStart()
 void mqttInitializationStop()
 {
   mqttInitializeTicker.stop();
+  lcd.clear();
+  lcd.print(F("READY"));
+  lcdBacklight();
 }
 
 void mqttInitializeTickerHandler()
@@ -375,22 +423,128 @@ void mqttInitializeTickerHandler()
   mqttInitializationStep++;
 }
 
-// void scanI2C(void)
-// {
-//   byte error, address;
-//   uint8_t nDevices = 0;
 
-//   Serial.println(F("Scanning i2c bus..."));
-//   for(uint8_t address = 1; address < 255; address++) {
-//     Wire.beginTransmission(address);
-//     if (Wire.endTransmission() == 0) {
-//       Serial.print(F("i2c device found at address 0x"));
-//       if (address<16) Serial.print("0");
-//       Serial.println(address,HEX);
-//       nDevices++;
-//     }
-//   }
-//   if (nDevices == 0) {
-//     Serial.println("Devices not found");
-//   }
-// }
+void funcButtonHandler(AceButton* button, uint8_t eventType, uint8_t buttonState)
+{
+  lcdBacklight();
+  switch (eventType) {
+    case AceButton::kEventClicked:
+      lcdShowNext();
+      break;
+    case AceButton::kEventLongPressed:
+      lcdBacklight();
+      lcd.clear();
+      lcd.print(F("RESET WiFi"));
+      sendUnavailability();
+      portal.clearWiFiCredentials();
+      delay(2000);
+      lcdBacklight();
+      lcd.clear();
+      lcd.print("REBOOTING...");
+      ESP.restart();
+      break;
+  }
+}
+
+void lcdBackLightHandler()
+{
+  //don't turn off display uninitialized
+  if (!mqttInitialized) {
+    return;
+  }
+  lcd.displayOff();
+}
+
+void lcdBacklight()
+{
+  lcd.displayOn();
+  lcdBacklightTicker.start();
+}
+
+void scanI2C(void)
+{
+  byte error, address;
+  uint8_t nDevices = 0;
+
+  Serial.println(F("Scanning i2c bus..."));
+  for(uint8_t address = 1; address < 255; address++) {
+    Wire.beginTransmission(address);
+    if (Wire.endTransmission() == 0) {
+      Serial.print(F("i2c device found at address 0x"));
+      if (address<16) Serial.print("0");
+      Serial.println(address,HEX);
+      nDevices++;
+    }
+  }
+  if (nDevices == 0) {
+    Serial.println("Devices not found");
+  }
+}
+
+void lcdShowNext()
+{
+  lcdBacklight();
+  lcd.clear();
+  uint8_t waterFlowStart = 3;
+  uint8_t waterFlowEnd = waterFlowStart + 4;
+
+  uint8_t relaysStart = waterFlowEnd;
+  uint8_t relaysEnd = relaysStart + relays.getCount();
+
+  uint8_t tempStart = relaysEnd;
+  uint8_t tempEnd = tempStart + tempSensors.getCount();
+  Serial.println(lcdStatusPosition);
+  if (lcdStatusPosition == 0) {
+
+    if (WiFi.getMode() == WIFI_STA) {
+      lcd.print(F("IP"));
+      lcd.setCursor(0, 1);
+      lcd.print(WiFi.localIP().toString());
+    } else {
+      lcd.print(F("SSID"));
+      lcd.setCursor(0, 1);
+      lcd.print(WiFi.SSID());
+    }
+  } else if (lcdStatusPosition == 1) {
+    lcd.print(F("VCC"));
+    lcd.setCursor(0, 1);
+    char buff[4];
+    lcd.printf("%0.2fV", ESP.getVcc() / 1000);
+  } else if (lcdStatusPosition == 2) {
+    lcd.print("DISTANCE SENSOR");
+    lcd.setCursor(0, 1);
+    lcd.print(distanceSensor.getValue());
+  } else if (lcdStatusPosition >= waterFlowStart && lcdStatusPosition < waterFlowEnd) {
+    std::vector<double> states = flowRateSensors.getStates();
+    std::vector<String> names = flowRateSensors.getNames();
+    uint8_t index = lcdStatusPosition - waterFlowStart;
+    String name = names[index];
+    name.replace(F("-"), F(" "));
+    name.toUpperCase();
+    lcd.print(name);
+    lcd.setCursor(0, 1);
+    lcd.printf("%0.2f", states[index]);
+  } else if (lcdStatusPosition >= relaysStart && lcdStatusPosition < relaysEnd) {
+    uint8_t relayId = lcdStatusPosition - relaysStart;
+    lcd.print(F("RELAY #"));
+    lcd.print(relayId);
+    lcd.setCursor(0, 1);
+    lcd.print(relays.getState(relayId) ? F("ON") : F("OFF"));
+  } else if (lcdStatusPosition >= tempStart && tempStart == tempEnd) {
+    lcd.print(F("NO TEMP SENSORS"));
+  } else if (lcdStatusPosition >= tempStart && lcdStatusPosition < tempEnd) {
+    uint8_t tempId = lcdStatusPosition - tempStart;
+    std::vector<float> states = tempSensors.getStates();
+    lcd.print(F("TEMPERATURE #"));
+    lcd.print(tempId);
+    lcd.setCursor(0, 1);
+    lcd.printf("%0.2f", states[tempId]);
+    lcd.print((char)223);
+    lcd.print(F("C"));
+  } else {
+    lcdStatusPosition = 0;
+    lcdShowNext();
+    return;
+  }
+  lcdStatusPosition++;
+}
