@@ -1,9 +1,9 @@
 #include <MqttAdapter.h>
 
-MqttAdapter::MqttAdapter(PubSubClient& mqtt, MqttSubscriptionCallback callback)
+MqttAdapter::MqttAdapter(PubSubClient &mqtt, MqttSubscriptionCallback callback)
 {
     _callback = callback;
-    _mqtt =&mqtt;
+    _mqtt = &mqtt;
     _mqtt->setCallback(std::bind(&MqttAdapter::handleMqttCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 }
 
@@ -11,60 +11,60 @@ MqttAdapter::~MqttAdapter()
 {
 }
 
-void MqttAdapter::handleMqttCallback(char* topic, uint8_t* payload, unsigned int length)
+void MqttAdapter::handleMqttCallback(char *topic, uint8_t *payload, unsigned int length)
 {
-    for (uint8_t i = 0; i < _subscriptionName.size(); i++) {
+    for (uint8_t i = 0; i < _subscriptionName.size(); i++)
+    {
         String t = getSubscriptionTopic(_subscriptionType[i], _subscriptionName[i].c_str());
-        if (t.equals(topic)) {
+        if (t.equals(topic))
+        {
             String pl = "";
-            for (unsigned int p = 0; p < length; p++) {
+            for (unsigned int p = 0; p < length; p++)
+            {
                 pl += String(char(payload[p]));
             }
             _callback(_subscriptionType[i], _subscriptionName[i].c_str(), pl);
             return;
         }
     }
-
 }
 
-String MqttAdapter::getStateTopic(Type type, const char* name)
+String MqttAdapter::getStateTopic(Type type, const char *name)
 {
     char buff[100];
-    switch(type)
+    switch (type)
     {
-        case RELAY:
-            sprintf(buff, MQTT_RELAY_TOPIC_STATE_TPL, MQTT_TOPIC_NAMESPACE, name);
-            break;
-        case TEMP_SENSOR:
-            sprintf(buff, MQTT_TEMP_SENSOR_TOPIC_STATE_TPL, MQTT_TOPIC_NAMESPACE, name);
-            break;
-        case WATER_FLOW_SENSOR:
-            sprintf(buff, MQTT_WATER_SENSOR_TOPIC_STATE_TPL, MQTT_TOPIC_NAMESPACE, name);
-            break;
-        case DISTANCE_SENSOR:
-            sprintf(buff, MQTT_DISTANCE_SENSOR_TOPIC_STATE_TPL, MQTT_TOPIC_NAMESPACE, name);
-            break;
-        default:
-            break;
-
+    case RELAY:
+        sprintf(buff, MQTT_RELAY_TOPIC_STATE_TPL, MQTT_TOPIC_NAMESPACE, name);
+        break;
+    case TEMP_SENSOR:
+        sprintf(buff, MQTT_TEMP_SENSOR_TOPIC_STATE_TPL, MQTT_TOPIC_NAMESPACE, name);
+        break;
+    case WATER_FLOW_SENSOR:
+        sprintf(buff, MQTT_WATER_SENSOR_TOPIC_STATE_TPL, MQTT_TOPIC_NAMESPACE, name);
+        break;
+    case DISTANCE_SENSOR:
+        sprintf(buff, MQTT_DISTANCE_SENSOR_TOPIC_STATE_TPL, MQTT_TOPIC_NAMESPACE, name);
+        break;
+    default:
+        break;
     }
     return String(buff);
 }
 
-String MqttAdapter::getSubscriptionTopic(Type type, const char* name)
+String MqttAdapter::getSubscriptionTopic(Type type, const char *name)
 {
     char buff[100];
-    switch(type)
+    switch (type)
     {
-        case RELAY:
-            sprintf(buff, MQTT_RELAY_TOPIC_COMMAND_TPL, MQTT_TOPIC_NAMESPACE, name);
-            break;
-        case HOMEASSISTANT:
-            sprintf(buff, MQTT_HOMEASSISTANT_AVAILABILITY_TOPIC, _discoveryTopicPrefix);
-            break;
-        default:
-            break;
-
+    case RELAY:
+        sprintf(buff, MQTT_RELAY_TOPIC_COMMAND_TPL, MQTT_TOPIC_NAMESPACE, name);
+        break;
+    case HOMEASSISTANT:
+        sprintf(buff, MQTT_HOMEASSISTANT_AVAILABILITY_TOPIC, _discoveryTopicPrefix);
+        break;
+    default:
+        break;
     }
     return String(buff);
 }
@@ -76,44 +76,44 @@ String MqttAdapter::getAvailabilityTopic()
     return String(buff);
 }
 
-String MqttAdapter::getDiscoveryTopic(Type type, const char* name)
+String MqttAdapter::getDiscoveryTopic(Type type, const char *name)
 {
     char buff[100];
-    switch(type)
+    switch (type)
     {
-        case RELAY:
-            sprintf(buff, MQTT_RELAY_DISCOVERY_TOPIC_TPL, _discoveryTopicPrefix, name);
-            break;
-        case TEMP_SENSOR:
-            sprintf(buff, MQTT_TEMP_SENSOR_DISCOVERY_TOPIC_TPL, _discoveryTopicPrefix, name);
-            break;
-        case WATER_FLOW_SENSOR:
-            sprintf(buff, MQTT_WATER_SENSOR_DISCOVERY_TOPIC_TPL, _discoveryTopicPrefix, name);
-            break;
-        case DISTANCE_SENSOR:
-            sprintf(buff, MQTT_DISTANCE_SENSOR_DISCOVERY_TOPIC_TPL, _discoveryTopicPrefix, name);
-            break;
-        default:
-            break;
-
+    case RELAY:
+        sprintf(buff, MQTT_RELAY_DISCOVERY_TOPIC_TPL, _discoveryTopicPrefix, name);
+        break;
+    case TEMP_SENSOR:
+        sprintf(buff, MQTT_TEMP_SENSOR_DISCOVERY_TOPIC_TPL, _discoveryTopicPrefix, name);
+        break;
+    case WATER_FLOW_SENSOR:
+        sprintf(buff, MQTT_WATER_SENSOR_DISCOVERY_TOPIC_TPL, _discoveryTopicPrefix, name);
+        break;
+    case DISTANCE_SENSOR:
+        sprintf(buff, MQTT_DISTANCE_SENSOR_DISCOVERY_TOPIC_TPL, _discoveryTopicPrefix, name);
+        break;
+    default:
+        break;
     }
     return String(buff);
 }
 
-bool MqttAdapter::sendState(Type type, const char* sensorId, bool value)
+bool MqttAdapter::sendState(Type type, const char *sensorId, bool value)
 {
     sendState(type, sensorId, value ? STATE_ON_PL : STATE_OFF_PL);
 }
 
-bool MqttAdapter::sendState(Type type, const char* sensorId, const char* value)
+bool MqttAdapter::sendState(Type type, const char *sensorId, const char *value)
 {
     return _mqtt->publish(getStateTopic(type, sensorId).c_str(), value);
 }
 
-bool MqttAdapter::sendDiscovery(Type type, const char* name)
+bool MqttAdapter::sendDiscovery(Type type, const char *name)
 {
     String topic = getDiscoveryTopic(type, name);
-    if (topic.length() == 0) {
+    if (topic.length() == 0)
+    {
         return false;
     }
     StaticJsonDocument<MQTT_PAYLOAD_SIZE> json;
@@ -128,36 +128,36 @@ bool MqttAdapter::sendDiscovery(Type type, const char* name)
     json["avty_t"] = getAvailabilityTopic();
 
     char nameBuff[15];
-    switch(type)
+    switch (type)
     {
-        case RELAY:
-            sprintf(nameBuff, "%s-relay-%s", DEVICE_PLACE_NAME, name);
-            json["name"] = nameBuff;
-            json["pl_on"] = STATE_ON_PL;
-            json["pl_off"] = STATE_OFF_PL;
-            json["stat_t"] = getStateTopic(type, name);
-            json["cmd_t"] = getSubscriptionTopic(type, name);
-            break;
-        case TEMP_SENSOR:
-            sprintf(nameBuff, "%s-temperature-%s", DEVICE_PLACE_NAME, name);
-            json["name"] = nameBuff;
-            json["stat_t"] = getStateTopic(type, name);
-            json["unit_of_meas"] = "°C";
-            json["dev_cla"] = "temperature";
-            break;
-        case WATER_FLOW_SENSOR:
-            sprintf(nameBuff, "%s-%s", DEVICE_PLACE_NAME, name);
-            json["name"] = nameBuff;
-            json["stat_t"] = getStateTopic(type, name);
-            break;
-        case DISTANCE_SENSOR:
-            sprintf(nameBuff, "%s-%s", DEVICE_PLACE_NAME, name);
-            json["name"] = nameBuff;
-            json["stat_t"] = getStateTopic(type, name);
-            json["unit_of_meas"] = "cm";
-            break;
-        default:
-            return false;
+    case RELAY:
+        sprintf(nameBuff, "%s-relay-%s", DEVICE_PLACE_NAME, name);
+        json["name"] = nameBuff;
+        json["pl_on"] = STATE_ON_PL;
+        json["pl_off"] = STATE_OFF_PL;
+        json["stat_t"] = getStateTopic(type, name);
+        json["cmd_t"] = getSubscriptionTopic(type, name);
+        break;
+    case TEMP_SENSOR:
+        sprintf(nameBuff, "%s-temperature-%s", DEVICE_PLACE_NAME, name);
+        json["name"] = nameBuff;
+        json["stat_t"] = getStateTopic(type, name);
+        json["unit_of_meas"] = "°C";
+        json["dev_cla"] = "temperature";
+        break;
+    case WATER_FLOW_SENSOR:
+        sprintf(nameBuff, "%s-%s", DEVICE_PLACE_NAME, name);
+        json["name"] = nameBuff;
+        json["stat_t"] = getStateTopic(type, name);
+        break;
+    case DISTANCE_SENSOR:
+        sprintf(nameBuff, "%s-%s", DEVICE_PLACE_NAME, name);
+        json["name"] = nameBuff;
+        json["stat_t"] = getStateTopic(type, name);
+        json["unit_of_meas"] = "%";
+        break;
+    default:
+        return false;
     }
     char buff[50];
     sprintf(buff, "%s-%d-%s", HA_DEVICE_SN, type, name);
@@ -173,10 +173,11 @@ bool MqttAdapter::sendAvailability(bool online)
     return _mqtt->publish(getAvailabilityTopic().c_str(), online ? AVAILABILITY_ONLINE_PL : AVAILABILITY_OFFLINE_PL);
 }
 
-bool MqttAdapter::subscribe(Type type, const char* name)
+bool MqttAdapter::subscribe(Type type, const char *name)
 {
     String topic = getSubscriptionTopic(type, name);
-    if (topic.length() > 0 && _mqtt->subscribe(topic.c_str(), SUBSCRIPTION_QOS)) {
+    if (topic.length() > 0 && _mqtt->subscribe(topic.c_str()))
+    {
         Serial.print("Register supscription handler on ");
         Serial.println(topic);
         _subscriptionName.push_back(String(name));
